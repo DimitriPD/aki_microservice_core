@@ -1,0 +1,71 @@
+# AKI! Microservice Core - Docker Compose for Development
+
+version: '3.8'
+
+services:
+  # MongoDB database
+  mongodb:
+    image: mongo:7.0
+    container_name: aki-core-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: aki_core
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - aki-network
+
+  # Core microservice
+  aki-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aki-microservice-core
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      MONGO_URI: mongodb://root:password@mongodb:27017/aki_core?authSource=admin
+      JWT_SECRET: development-secret-key-for-testing-only
+      PERSONAS_BASE_URL: http://personas-service:3000
+      FUNCTION_NOTIFICATIONS_URL: http://function1-notify:7071
+      LOG_LEVEL: debug
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongodb
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - aki-network
+
+  # MongoDB Express (optional - for database management)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: aki-core-mongo-express
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: root
+      ME_CONFIG_MONGODB_ADMINPASSWORD: password
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+    ports:
+      - "8081:8081"
+    depends_on:
+      - mongodb
+    networks:
+      - aki-network
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  aki-network:
+    driver: bridge

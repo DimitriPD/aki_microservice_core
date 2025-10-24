@@ -1,0 +1,689 @@
+openapi: 3.0.3
+info:
+  title: AKI! - Microservice B (Core)
+  version: "1.0.0"
+  description: |
+    Core microservice for AKI! — manages Events, Attendances and Occurrences.
+    Architecture notes: designed following Clean Architecture, SOLID and Vertical Slice.
+    This service is intended to be consumed by API Gateway, BFF and other internal services.
+  contact:
+    name: AKI! Team
+    email: infra@aki.example
+
+servers:
+  - url: https://core.api.aki.example/v1
+    description: Production server
+  - url: https://staging-core.api.aki.example/v1
+    description: Staging server
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Events
+    description: Create / manage classroom events and QR tokens
+  - name: Attendances
+    description: Register and query attendance records
+  - name: Occurrences
+    description: Automatic and manual occurrences (alerts / notes)
+  - name: Admin
+    description: Admin / export / health operations
+
+paths:
+  /events:
+    get:
+      tags: [Events]
+      summary: List events (paged)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: class_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by class internal id
+        - name: teacher_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by teacher internal id
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, closed, canceled]
+      responses:
+        "200":
+          description: Paged list of events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedEvents'
+      security:
+        - bearerAuth: []
+    post:
+      tags: [Events]
+      summary: Create a new event (generates QR token)
+      description: Creates an event for a class. QR token is generated and returned. Emits `event.created`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventCreate'
+      responses:
+        "201":
+          description: Event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        "409":
+          description: Conflict (overlapping event)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+
+  /events/{eventId}:
+    parameters:
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: MongoDB ObjectId of the event
+    get:
+      tags: [Events]
+      summary: Get event by id
+      responses:
+        "200":
+          description: Event found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+    put:
+      tags: [Events]
+      summary: Update event (only allowed fields)
+      description: Updating start/end time or status. Emits `event.updated` / `event.closed` when applicable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventUpdate'
+      responses:
+        "200":
+          description: Event updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+    delete:
+      tags: [Events]
+      summary: Delete event (only if no restrictions)
+      responses:
+        "204":
+          description: Event deleted
+        "409":
+          description: Conflict (cannot delete closed event or event with constraints)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+
+  /events/{eventId}/qr:
+    parameters:
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Events]
+      summary: Get current QR token for event
+      description: Returns the signed QR token (JWT) and expiry. Token should be short-lived and validated by the Core service.
+      responses:
+        "200":
+          description: QR token and expiry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  qr_token:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+
+  /attendances:
+    post:
+      tags: [Attendances]
+      summary: Create attendance by QR token (student scanning)
+      description: |
+        Registers attendance using a QR token presented by the student device.
+        The service validates token, checks class membership (via Personas), verifies optional location and distance, and persists the attendance.
+        Emits `attendance.created` and may create an `occurrence` if student not in class.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceByQr'
+      responses:
+        "201":
+          description: Attendance registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attendance'
+        "400":
+          description: Invalid token / validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+    get:
+      tags: [Attendances]
+      summary: List attendances (paged / filters)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: event_id
+          in: query
+          schema:
+            type: string
+        - name: student_id
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [recorded, manual, retroactive, invalid]
+      responses:
+        "200":
+          description: Paged attendances
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedAttendances'
+      security:
+        - bearerAuth: []
+
+  /attendances/{attendanceId}:
+    parameters:
+      - name: attendanceId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: MongoDB ObjectId of the attendance
+    get:
+      tags: [Attendances]
+      summary: Get attendance by id
+      responses:
+        "200":
+          description: Attendance found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attendance'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+    put:
+      tags: [Attendances]
+      summary: Update attendance (e.g., mark manual / corrected)
+      description: Used by teacher to correct attendance. Emits `attendance.updated`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceUpdate'
+      responses:
+        "200":
+          description: Attendance updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attendance'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+
+  /occurrences:
+    get:
+      tags: [Occurrences]
+      summary: List occurrences (paged)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: class_id
+          in: query
+          schema:
+            type: integer
+        - name: teacher_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paged occurrences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedOccurrences'
+      security:
+        - bearerAuth: []
+    post:
+      tags: [Occurrences]
+      summary: Create an occurrence (manual or automatic)
+      description: Teachers can create manual occurrences (e.g., student not in class), the system may also auto-create occurrences (e.g., invalid QR attempts).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OccurrenceCreate'
+      responses:
+        "201":
+          description: Occurrence created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Occurrence'
+      security:
+        - bearerAuth: []
+
+  /admin/export/attendances:
+    post:
+      tags: [Admin]
+      summary: Export attendances (CSV/Excel)
+      description: Request an export job for a given filter; returns job id. (Async export)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_id:
+                  type: string
+                class_id:
+                  type: integer
+                from:
+                  type: string
+                  format: date-time
+                to:
+                  type: string
+                  format: date-time
+      responses:
+        "202":
+          description: Export job accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+      security:
+        - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+      example:
+        code: "validation_error"
+        message: "QR token expired"
+        details: ["token.expiry", "distance_meters"]
+
+    PagedMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          description: MongoDB ObjectId as string
+        class_id:
+          type: integer
+        teacher_id:
+          type: integer
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        location:
+          type: object
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+        qr_token:
+          type: string
+          description: Signed token (JWT) used in QR code. May be omitted if expired.
+        status:
+          type: string
+          enum: [active, closed, canceled]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [ id, class_id, teacher_id, start_time, end_time, status ]
+
+    EventCreate:
+      type: object
+      required: [ class_id, teacher_id, start_time, end_time, location ]
+      properties:
+        class_id:
+          type: integer
+        teacher_id:
+          type: integer
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        location:
+          type: object
+          required: [ latitude, longitude ]
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+
+    EventUpdate:
+      type: object
+      properties:
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, closed, canceled]
+
+    Attendance:
+      type: object
+      properties:
+        id:
+          type: string
+        event_id:
+          type: string
+        student_id:
+          type: integer
+        status:
+          type: string
+          enum: [recorded, manual, retroactive, invalid]
+        timestamp:
+          type: string
+          format: date-time
+        location:
+          type: object
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+        validation:
+          type: object
+          properties:
+            within_radius:
+              type: boolean
+            distance_meters:
+              type: number
+        created_by:
+          type: string
+          description: "system | teacher:{id}"
+        created_at:
+          type: string
+          format: date-time
+      required: [ id, event_id, student_id, status, timestamp ]
+
+    AttendanceByQr:
+      type: object
+      required: [ qr_token, device_id, student_cpf ]
+      properties:
+        qr_token:
+          type: string
+        device_id:
+          type: string
+        student_cpf:
+          type: string
+          description: Student CPF (11 digits). If device already associated with a student, backend may ignore student_cpf.
+        location:
+          type: object
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+        device_time:
+          type: string
+          format: date-time
+
+    AttendanceUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [recorded, manual, retroactive, invalid]
+        created_by:
+          type: string
+        note:
+          type: string
+
+    Occurrence:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [student_not_in_class, manual_note, invalid_qr, duplicate_scan]
+        teacher_id:
+          type: integer
+        student_cpf:
+          type: string
+        class_id:
+          type: integer
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        notified_to_institution:
+          type: boolean
+      required: [ id, type, created_at ]
+
+    OccurrenceCreate:
+      type: object
+      required: [ type, teacher_id, description ]
+      properties:
+        type:
+          type: string
+          enum: [student_not_in_class, manual_note, invalid_qr, duplicate_scan]
+        teacher_id:
+          type: integer
+        student_cpf:
+          type: string
+        class_id:
+          type: integer
+        description:
+          type: string
+
+    PagedEvents:
+      type: object
+      properties:
+        meta:
+          $ref: '#/components/schemas/PagedMeta'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+
+    PagedAttendances:
+      type: object
+      properties:
+        meta:
+          $ref: '#/components/schemas/PagedMeta'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attendance'
+
+    PagedOccurrences:
+      type: object
+      properties:
+        meta:
+          $ref: '#/components/schemas/PagedMeta'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Occurrence'
+
+  x-events:
+    description: |
+      Events emitted by Core service to message bus (ServiceBus / Kafka / etc):
+        - event.created      : { event_id, class_id, teacher_id, start_time, end_time }
+        - event.updated      : { event_id, changes }
+        - event.closed       : { event_id, closed_at }
+        - attendance.created : { attendance_id, event_id, student_id, status }
+        - attendance.updated : { attendance_id, changes }
+        - occurrence.created : { occurrence_id, type, class_id, teacher_id }
+      Consumers: BFF, Function1 (notifications), Function4 (simulator), reporting services.
+
+externalDocs:
+  description: Implementation notes and data retention policy
+  url: https://docs.aki.example/internal/core/architecture
+
+# Implementation notes (non-normative)
+# - QR tokens MUST be signed JWTs with event id and expiry. Token verification occurs in Core.
+# - Location validation: Core computes Haversine distance and sets validation.distance_meters and within_radius (<= 10m as per business rule).
+# - Core must call Personas service to validate student <-> class membership when registering attendance by QR.
+# - All writes must be idempotent where possible (use unique constraints: event_id + student_id for attendances).
+# - Recommended MongoDB indexes:
+#    - events: { class_id: 1, start_time: 1 }
+#    - attendances: { event_id: 1, student_id: 1, timestamp: -1 }
+#    - occurrences: { class_id: 1, created_at: -1 }
+
