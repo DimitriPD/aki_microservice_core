@@ -1,11 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import { CreateAttendanceByQrUseCase } from '../../application/use-cases/attendances/CreateAttendanceByQrUseCase';
-import { ValidationError } from '../../shared/errors/AppErrors';
+import { ValidationError, NotFoundError } from '../../shared/errors/AppErrors';
 import { logger } from '../../shared/logger/Logger';
+import { AttendanceRepositoryImpl } from '../../infrastructure/repositories/AttendanceRepositoryImpl';
+import { AttendanceId } from '../../domain/value-objects/CommonTypes';
 
 export class AttendanceController {
   constructor(
-    private createAttendanceByQrUseCase: CreateAttendanceByQrUseCase
+    private createAttendanceByQrUseCase: CreateAttendanceByQrUseCase,
+    private attendanceRepository: AttendanceRepositoryImpl
   ) {}
 
   async createAttendanceByQr(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -41,26 +44,22 @@ export class AttendanceController {
 
   async listAttendances(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const {
-        page = '1',
-        size = '100',
-        event_id,
-        student_id,
-        status
-      } = req.query;
+      const { page = '1', size = '100', event_id, student_id, status } = req.query;
 
-      // For now, return empty list since we haven't implemented the list use case yet
-      const result = {
-        items: [],
-        meta: {
-          page: parseInt(page as string, 10),
-          size: parseInt(size as string, 10),
-          total: 0
-        }
+      const filters: any = {};
+      if (event_id) filters.eventId = event_id as string;
+      if (student_id) filters.studentId = parseInt(student_id as string, 10);
+      if (status) filters.status = status as string;
+
+      const pagination = {
+        page: parseInt(page as string, 10),
+        size: parseInt(size as string, 10)
       };
 
+      const result = await this.attendanceRepository.findAll(filters, pagination);
+
       res.json({
-        data: result.items,
+        data: result.items.map(a => a.toObject()),
         meta: result.meta,
         message: 'Attendances retrieved successfully'
       });
@@ -72,18 +71,16 @@ export class AttendanceController {
   async getAttendance(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { attendanceId } = req.params;
-
       if (!attendanceId) {
         throw new ValidationError('Attendance ID is required');
       }
-
-      // For now, return not found since we haven't implemented the get use case yet
-      res.status(404).json({
-        error: {
-          code: 'NOT_FOUND',
-          message: 'Attendance not found',
-          details: []
-        }
+      const attendance = await this.attendanceRepository.findById(new AttendanceId(attendanceId));
+      if (!attendance) {
+        throw new NotFoundError('Attendance not found');
+      }
+      res.json({
+        data: attendance.toObject(),
+        message: 'Attendance retrieved successfully'
       });
     } catch (error) {
       next(error);
@@ -93,18 +90,21 @@ export class AttendanceController {
   async updateAttendance(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { attendanceId } = req.params;
-      const { status, created_by, note } = req.body;
-
+      const { status } = req.body;
       if (!attendanceId) {
         throw new ValidationError('Attendance ID is required');
       }
-
-      // For now, return a mock response since we haven't implemented UpdateAttendanceUseCase
+      if (!status) {
+        throw new ValidationError('Status is required');
+      }
+      const attendance = await this.attendanceRepository.findById(new AttendanceId(attendanceId));
+      if (!attendance) {
+        throw new NotFoundError('Attendance not found');
+      }
+      attendance.updateStatus(status, 'system');
+      const updated = await this.attendanceRepository.update(attendance);
       res.json({
-        data: {
-          id: attendanceId,
-          message: 'Attendance update functionality not yet implemented'
-        },
+        data: updated.toObject(),
         message: 'Attendance updated successfully'
       });
     } catch (error) {

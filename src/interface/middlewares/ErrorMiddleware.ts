@@ -2,6 +2,27 @@ import { Request, Response, NextFunction } from 'express';
 import { BaseError } from '../../shared/errors/AppErrors';
 import { logger } from '../../shared/logger/Logger';
 
+// Helper function to extract enum values from error message
+function extractEnumFromMessage(message: string): string[] {
+  const match = message.match(/`([^`]+)` is not a valid enum value for path `([^`]+)`/);
+  if (match) {
+    // Try to extract from common patterns in Mongoose error messages
+    const pathMatch = message.match(/enum: \[(.*?)\]/);
+    if (pathMatch && pathMatch[1]) {
+      return pathMatch[1].split(',').map((v) => v.trim().replace(/['"]/g, ''));
+    }
+  }
+  return [];
+}
+
+// Map of known enum fields with their allowed values
+const KNOWN_ENUMS: Record<string, string[]> = {
+  status: ['recorded', 'manual', 'retroactive', 'invalid'],
+  event_status: ['active', 'closed', 'canceled'],
+  occurrence_type: ['student_not_in_class', 'manual_note', 'invalid_qr', 'duplicate_scan'],
+  type: ['student_not_in_class', 'manual_note', 'invalid_qr', 'duplicate_scan']
+};
+
 export function errorHandler(
   error: Error | BaseError,
   req: Request,
@@ -28,11 +49,60 @@ export function errorHandler(
 
   // Handle Mongoose validation errors
   if (error.name === 'ValidationError') {
+    const mongooseError = error as any;
+    const details: string[] = [];
+
+    // Extract individual field errors
+    if (mongooseError.errors) {
+      Object.keys(mongooseError.errors).forEach((field) => {
+        const fieldError = mongooseError.errors[field];
+
+        if (fieldError.kind === 'enum') {
+          // Try multiple strategies to get enum values
+          let enumValues: string[] = [];
+          
+          // Strategy 1: Check our known enums map
+          if (KNOWN_ENUMS[field]) {
+            enumValues = KNOWN_ENUMS[field];
+          }
+          
+          // Strategy 2: Try to extract from Mongoose error object
+          if (!enumValues.length) {
+            enumValues = 
+              fieldError.enumValues ||
+              fieldError.properties?.enumValues ||
+              [];
+          }
+          
+          // Strategy 3: Try to extract from error message
+          if (!enumValues.length) {
+            enumValues = extractEnumFromMessage(fieldError.message || '');
+          }
+
+          const enumList = enumValues && enumValues.length > 0 ? enumValues.join(', ') : 'check schema';
+          details.push(
+            `Field '${field}': Value '${fieldError.value}' is not valid. Allowed values: ${enumList}`
+          );
+        } else if (fieldError.kind === 'required') {
+          details.push(`Field '${field}' is required`);
+        } else if (fieldError.kind === 'min' || fieldError.kind === 'max') {
+          details.push(`Field '${field}': ${fieldError.message}`);
+        } else {
+          details.push(`Field '${field}': ${fieldError.message}`);
+        }
+      });
+    }
+
+    // If no specific errors found, use the general message
+    if (details.length === 0) {
+      details.push(error.message);
+    }
+
     res.status(400).json({
       error: {
         code: 'VALIDATION_ERROR',
         message: 'Invalid data provided',
-        details: [error.message]
+        details
       }
     });
     return;

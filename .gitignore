@@ -15,6 +15,7 @@ build/
 .env.test.local
 .env.production.local
 
+
 # Logs
 logs/
 *.log
@@ -30,7 +31,7 @@ coverage/
 .nyc_output/
 
 # Dependency lock files (choose one)
-# package-lock.json
+package-lock.json
 # yarn.lock
 
 # Optional npm cache directory

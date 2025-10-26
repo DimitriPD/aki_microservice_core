@@ -26,8 +26,10 @@ const logger = winston.createLogger({
   ]
 });
 
-// Add console transport in development
-if (process.env.NODE_ENV !== 'production') {
+// Console transport conditions:
+//  - Always in non-production
+//  - In production only if LOG_TO_CONSOLE=true (useful for container environments)
+if (process.env.NODE_ENV !== 'production' || process.env.LOG_TO_CONSOLE === 'true') {
   logger.add(new winston.transports.Console({
     format: winston.format.combine(
       winston.format.colorize(),
@@ -37,6 +39,11 @@ if (process.env.NODE_ENV !== 'production') {
       })
     )
   }));
+  if (process.env.LOG_TO_CONSOLE === 'true') {
+    // Basic startup notice to confirm logger activation
+    // eslint-disable-next-line no-console
+    console.log('[logger] Console transport enabled (LOG_TO_CONSOLE=true)');
+  }
 }
 
 export { logger };

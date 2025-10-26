@@ -1,0 +1,854 @@
+openapi: 3.0.3
+info:
+  title: AKI! - Microservice A (Personas)
+  version: "1.0.0"
+  description: |
+    Personas microservice for AKI! — manages Students, Teachers and Classes.
+    Architecture notes: designed following Clean Architecture, SOLID and Vertical Slice.
+    This service is intended to be consumed by API Gateway, BFF and other internal services.
+  contact:
+    name: AKI! Team
+    email: infra@aki.example
+servers:
+  - url: https://personas.api.aki.example/v1
+    description: Production server
+  - url: https://staging-personas.api.aki.example/v1
+    description: Staging server
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Students
+    description: Endpoints to manage students (CRUD + device binding)
+  - name: Teachers
+    description: Endpoints to manage teachers (CRUD, password flows)
+  - name: Classes
+    description: Endpoints to manage classes and membership links
+  - name: Admin
+    description: Administrative / bulk operations and sync
+
+paths:
+  /students:
+    get:
+      tags: [Students]
+      summary: List students (paged)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Page number
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+          description: Page size
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Optional search string (cpf or name)
+      responses:
+        "200":
+          description: Paged list of students
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedStudents'
+      security:
+        - bearerAuth: []
+    post:
+      tags: [Students]
+      summary: Create a new student
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentCreate'
+      responses:
+        "201":
+          description: Student created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Student'
+        "409":
+          description: CPF already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+
+  /students/{studentId}:
+    parameters:
+      - name: studentId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Student internal ID
+    get:
+      tags: [Students]
+      summary: Get student by id
+      responses:
+        "200":
+          description: Student found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Student'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+    put:
+      tags: [Students]
+      summary: Update a student
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentUpdate'
+      responses:
+        "200":
+          description: Student updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Student'
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+    delete:
+      tags: [Students]
+      summary: Delete a student
+      responses:
+        "204":
+          description: Student deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+
+  /students/{studentId}/device:
+    put:
+      tags: [Students]
+      summary: Bind or update device id for student (first-time association)
+      description: When a student scans QR for the first time, frontend calls this to associate device_id to student.
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ device_id ]
+              properties:
+                device_id:
+                  type: string
+      responses:
+        "200":
+          description: Device associated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Student'
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+
+  /teachers:
+    get:
+      tags: [Teachers]
+      summary: List teachers (paged)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Paged teachers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedTeachers'
+      security:
+        - bearerAuth: []
+    post:
+      tags: [Teachers]
+      summary: Create a new teacher
+      description: If created without a `password_hash`, the service emits an internal event `teacher.password.setup` to trigger email setup (async).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeacherCreate'
+      responses:
+        "201":
+          description: Teacher created (and event emitted if no password)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Teacher'
+        "409":
+          description: CPF or email conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+
+  /teachers/{teacherId}:
+    parameters:
+      - name: teacherId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags: [Teachers]
+      summary: Get teacher by id
+      responses:
+        "200":
+          description: Teacher found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Teacher'
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+    put:
+      tags: [Teachers]
+      summary: Update teacher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeacherUpdate'
+      responses:
+        "200":
+          description: Teacher updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Teacher'
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+    delete:
+      tags: [Teachers]
+      summary: Delete teacher
+      responses:
+        "204":
+          description: Teacher deleted
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+
+  /classes:
+    get:
+      tags: [Classes]
+      summary: List classes
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Paged classes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedClasses'
+      security:
+        - bearerAuth: []
+    post:
+      tags: [Classes]
+      summary: Create class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassCreate'
+      responses:
+        "201":
+          description: Class created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Class'
+        "409":
+          description: Conflict (e.g. duplicate name/code)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+
+  /classes/{classId}:
+    parameters:
+      - name: classId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags: [Classes]
+      summary: Get class by id (with members)
+      responses:
+        "200":
+          description: Class details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassWithMembers'
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+    put:
+      tags: [Classes]
+      summary: Update class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassUpdate'
+      responses:
+        "200":
+          description: Class updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Class'
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+    delete:
+      tags: [Classes]
+      summary: Delete class
+      responses:
+        "204":
+          description: Class deleted
+        "409":
+          description: Conflict (e.g., class has dependent events in Core)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+
+  /classes/{classId}/students:
+    get:
+      tags: [Classes]
+      summary: List students in a class
+      parameters:
+        - name: classId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Student list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Student'
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+    post:
+      tags: [Classes]
+      summary: Add a student to a class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ student_id ]
+              properties:
+                student_id:
+                  type: integer
+      responses:
+        "201":
+          description: Student added to class
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassWithMembers'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          description: Already linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+    delete:
+      tags: [Classes]
+      summary: Remove a student from class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ student_id ]
+              properties:
+                student_id:
+                  type: integer
+      responses:
+        "204":
+          description: Student removed
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+
+  /classes/{classId}/teachers:
+    get:
+      tags: [Classes]
+      summary: List teachers of a class
+      parameters:
+        - name: classId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Teacher list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Teacher'
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+    post:
+      tags: [Classes]
+      summary: Add a teacher to a class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ teacher_id ]
+              properties:
+                teacher_id:
+                  type: integer
+      responses:
+        "201":
+          description: Teacher added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassWithMembers'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          description: Already linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+    delete:
+      tags: [Classes]
+      summary: Remove teacher from class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ teacher_id ]
+              properties:
+                teacher_id:
+                  type: integer
+      responses:
+        "204":
+          description: Teacher removed
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+
+  /admin/sync:
+    post:
+      tags: [Admin]
+      summary: Incremental sync endpoint (institution push)
+      description: |
+        Endpoint for institutions to push incremental changes (students, teachers, classes).
+        Accepts a delta payload. Designed to be idempotent and safe for retries.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncrementalSync'
+      responses:
+        "200":
+          description: Sync accepted and processed (summary)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processed:
+                    type: integer
+                  created:
+                    type: integer
+                  updated:
+                    type: integer
+                  deleted:
+                    type: integer
+      security:
+        - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+      example:
+        code: "validation_error"
+        message: "CPF is required"
+        details: ["cpf must be 11 digits"]
+
+    Student:
+      type: object
+      properties:
+        id:
+          type: integer
+        cpf:
+          type: string
+          description: Brazilian CPF (11 digits)
+        full_name:
+          type: string
+        device_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [ id, cpf, full_name ]
+
+    StudentCreate:
+      type: object
+      required: [ cpf, full_name ]
+      properties:
+        cpf:
+          type: string
+          description: CPF (11 digits)
+        full_name:
+          type: string
+
+    StudentUpdate:
+      type: object
+      properties:
+        full_name:
+          type: string
+        device_id:
+          type: string
+
+    Teacher:
+      type: object
+      properties:
+        id:
+          type: integer
+        cpf:
+          type: string
+        full_name:
+          type: string
+        email:
+          type: string
+        password_hash:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [ id, cpf, full_name, email ]
+
+    TeacherCreate:
+      type: object
+      required: [ cpf, full_name, email ]
+      properties:
+        cpf:
+          type: string
+        full_name:
+          type: string
+        email:
+          type: string
+        password_hash:
+          type: string
+          description: Optional - if absent, a `teacher.password.setup` event will be emitted for email setup
+
+    TeacherUpdate:
+      type: object
+      properties:
+        full_name:
+          type: string
+        email:
+          type: string
+        password_hash:
+          type: string
+
+    Class:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [ id, name ]
+
+    ClassCreate:
+      type: object
+      required: [ name ]
+      properties:
+        name:
+          type: string
+
+    ClassUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+
+    ClassWithMembers:
+      allOf:
+        - $ref: '#/components/schemas/Class'
+        - type: object
+          properties:
+            students:
+              type: array
+              items:
+                $ref: '#/components/schemas/Student'
+            teachers:
+              type: array
+              items:
+                $ref: '#/components/schemas/Teacher'
+
+    PagedMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
+
+    PagedStudents:
+      type: object
+      properties:
+        meta:
+          $ref: '#/components/schemas/PagedMeta'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Student'
+
+    PagedTeachers:
+      type: object
+      properties:
+        meta:
+          $ref: '#/components/schemas/PagedMeta'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Teacher'
+
+    PagedClasses:
+      type: object
+      properties:
+        meta:
+          $ref: '#/components/schemas/PagedMeta'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Class'
+
+    IncrementalSync:
+      type: object
+      description: Delta payload for incremental sync from institution
+      properties:
+        source:
+          type: string
+          description: origin system id
+        timestamp:
+          type: string
+          format: date-time
+        changes:
+          type: object
+          properties:
+            students:
+              type: array
+              items:
+                type: object
+                properties:
+                  action:
+                    type: string
+                    enum: [create, update, delete]
+                  record:
+                    $ref: '#/components/schemas/Student'
+            teachers:
+              type: array
+              items:
+                type: object
+                properties:
+                  action:
+                    type: string
+                    enum: [create, update, delete]
+                  record:
+                    $ref: '#/components/schemas/Teacher'
+            classes:
+              type: array
+              items:
+                type: object
+                properties:
+                  action:
+                    type: string
+                    enum: [create, update, delete]
+                  record:
+                    $ref: '#/components/schemas/Class'
+      example:
+        source: "institution-123"
+        timestamp: "2025-10-23T12:00:00Z"
+        changes:
+          students:
+            - action: create
+              record:
+                id: 0
+                cpf: "12345678901"
+                full_name: "John Example"
+          teachers: []
+          classes: []
+
+  x-events:
+    description: |
+      Informational: this service emits the following internal events to the message bus (ServiceBus / Kafka / etc):
+        - teacher.password.setup  : { teacher_id, email }  -> emitted when a teacher is created without password_hash
+        - personas.student.created : { student_id, cpf }    -> emitted on student creation
+        - personas.class.updated   : { class_id }           -> emitted on class updates
+      Consumers: Function 2 (email), Function 4 (simulator), BFF, other microservices.
+
+externalDocs:
+  description: Implementation notes
+  url: https://docs.aki.example/internal/personas/architecture
+

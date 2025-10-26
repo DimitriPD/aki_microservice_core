@@ -179,13 +179,12 @@ The application uses MongoDB with Mongoose ODM. Database indexes are automatical
 ```bash
 POST /v1/events
 Content-Type: application/json
-Authorization: Bearer <jwt-token>
 
 {
   "class_id": 1,
-  "teacher_id": 1,
-  "start_time": "2024-01-15T10:00:00Z",
-  "end_time": "2024-01-15T12:00:00Z",
+  "teacher_id": 10,
+  "start_time": "2025-01-15T10:00:00Z",
+  "end_time": "2025-01-15T12:00:00Z",
   "location": {
     "latitude": -23.5505,
     "longitude": -46.6333
@@ -213,12 +212,19 @@ Content-Type: application/json
 
 ---
 
-## 🔐 Authentication
+## 🔐 Authentication (Removed from Core)
 
-The service uses JWT-based authentication. In development mode, authentication is mocked for easier testing.
+This microservice no longer performs request authentication/authorization directly. All security concerns
+are delegated to the API Gateway / BFF layer. Endpoints are now "auth-neutral" and expect to be called only
+from trusted internal network components.
 
-**Production**: Include `Authorization: Bearer <jwt-token>` header.  
-**Development**: Authentication is automatically mocked.
+QR tokens for events are still generated and validated using signed JWTs, but they are strictly scoped to
+event attendance logic (not user/session authentication).
+
+Summary:
+- No `Authorization: Bearer` header required for Core endpoints.
+- Upstream gateway must handle user identity and forward only trusted traffic.
+- Environment variable `JWT_SECRET` is retained to sign QR tokens (not API auth tokens).
 
 ---
 

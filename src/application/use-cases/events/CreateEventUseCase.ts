@@ -4,6 +4,7 @@ import { Location } from '../../../domain/value-objects/Location';
 import { IEventRepository } from '../../../domain/repositories/IEventRepository';
 import { ConflictError, ValidationError } from '../../../shared/errors/AppErrors';
 import { TokenService } from '../../../shared/utils/TokenService';
+import { PersonasService } from '../../services/PersonasService';
 
 export interface CreateEventRequest {
   classId: number;
@@ -19,12 +20,29 @@ export interface CreateEventRequest {
 export class CreateEventUseCase {
   constructor(
     private eventRepository: IEventRepository,
-    private tokenService: TokenService
+    private tokenService: TokenService,
+    private personasService: PersonasService
   ) {}
 
   async execute(request: CreateEventRequest): Promise<Event> {
     // Validate input
     this.validateRequest(request);
+
+    // Personas validations (teacher & class)
+    const teacher = await this.personasService.getTeacherById(request.teacherId);
+    if (!teacher) {
+      throw new ValidationError('Teacher not found');
+    }
+
+    const klass = await this.personasService.getClassById(request.classId);
+    if (!klass) {
+      throw new ValidationError('Class not found');
+    }
+
+    const teacherInClass = await this.personasService.isTeacherInClass(request.teacherId, request.classId);
+    if (!teacherInClass) {
+      throw new ValidationError('Teacher is not a member of the specified class');
+    }
 
     // Check for overlapping events
     const overlappingEvents = await this.eventRepository.findOverlappingEvents(

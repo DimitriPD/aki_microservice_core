@@ -1,10 +1,18 @@
 import express from 'express';
+// Early diagnostic logging BEFORE other imports finish (raw console for container visibility)
+// eslint-disable-next-line no-console
+console.log('[startup] Beginning application bootstrap');
+// eslint-disable-next-line no-console
+console.log('[startup] Node version:', process.version);
+// eslint-disable-next-line no-console
+console.log('[startup] Working directory:', process.cwd());
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import swaggerUi from 'swagger-ui-express';
 import yaml from 'yamljs';
 import path from 'path';
+import fs from 'fs';
 import { config, validateConfig } from './infrastructure/config/Config';
 import { databaseConnection } from './infrastructure/database/connections/MongoConnection';
 import { logger } from './shared/logger/Logger';
@@ -13,6 +21,7 @@ import { errorHandler, notFoundHandler } from './interface/middlewares/ErrorMidd
 // Repositories
 import { EventRepositoryImpl } from './infrastructure/repositories/EventRepositoryImpl';
 import { AttendanceRepositoryImpl } from './infrastructure/repositories/AttendanceRepositoryImpl';
+import { OccurrenceRepositoryImpl } from './infrastructure/repositories/OccurrenceRepositoryImpl';
 
 // Services
 import { PersonasServiceImpl } from './application/services/PersonasService';
@@ -30,18 +39,17 @@ import { CreateAttendanceByQrUseCase } from './application/use-cases/attendances
 import { EventController } from './interface/controllers/EventController';
 import { AttendanceController } from './interface/controllers/AttendanceController';
 import { OccurrenceController } from './interface/controllers/OccurrenceController';
-import { AdminController } from './interface/controllers/AdminController';
 
 // Routes
 import { createEventRoutes } from './interface/routes/EventRoutes';
 import { createAttendanceRoutes } from './interface/routes/AttendanceRoutes';
 import { createOccurrenceRoutes } from './interface/routes/OccurrenceRoutes';
-import { createAdminRoutes } from './interface/routes/AdminRoutes';
 
 class Application {
   private app: express.Application;
   private eventRepository!: EventRepositoryImpl;
   private attendanceRepository!: AttendanceRepositoryImpl;
+  private occurrenceRepository!: OccurrenceRepositoryImpl;
   private personasService!: PersonasServiceImpl;
   private tokenService!: TokenService;
   
@@ -57,7 +65,6 @@ class Application {
   private eventController!: EventController;
   private attendanceController!: AttendanceController;
   private occurrenceController!: OccurrenceController;
-  private adminController!: AdminController;
 
   constructor() {
     this.app = express();
@@ -69,8 +76,9 @@ class Application {
 
   private setupDependencies(): void {
     // Initialize repositories
-    this.eventRepository = new EventRepositoryImpl();
-    this.attendanceRepository = new AttendanceRepositoryImpl();
+  this.eventRepository = new EventRepositoryImpl();
+  this.attendanceRepository = new AttendanceRepositoryImpl();
+  this.occurrenceRepository = new OccurrenceRepositoryImpl();
     
     // Initialize services
     this.personasService = new PersonasServiceImpl(config.personasBaseUrl);
@@ -79,7 +87,8 @@ class Application {
     // Initialize use cases
     this.createEventUseCase = new CreateEventUseCase(
       this.eventRepository,
-      this.tokenService
+      this.tokenService,
+      this.personasService
     );
     this.getEventUseCase = new GetEventUseCase(this.eventRepository);
     this.listEventsUseCase = new ListEventsUseCase(this.eventRepository);
@@ -101,10 +110,13 @@ class Application {
       this.deleteEventUseCase
     );
     this.attendanceController = new AttendanceController(
-      this.createAttendanceByQrUseCase
+      this.createAttendanceByQrUseCase,
+      this.attendanceRepository
     );
-    this.occurrenceController = new OccurrenceController();
-    this.adminController = new AdminController();
+    this.occurrenceController = new OccurrenceController(
+      this.occurrenceRepository,
+      this.personasService
+    );
   }
 
   private setupMiddleware(): void {
@@ -146,8 +158,7 @@ class Application {
           health: '/health',
           events: '/v1/events',
           attendances: '/v1/attendances',
-          occurrences: '/v1/occurrences',
-          admin: '/v1/admin'
+          occurrences: '/v1/occurrences'
         },
         documentation: {
           swagger: '/docs',
@@ -165,34 +176,53 @@ class Application {
       });
     });
 
-    // Swagger Documentation
-    try {
-      const openApiDocument = yaml.load(path.join(process.cwd(), 'openapi.yaml'));
-      
-      // Update servers to include localhost for development
-      if (openApiDocument.servers) {
-        openApiDocument.servers.unshift({
-          url: `http://localhost:${config.port}/v1`,
-          description: 'Local development server'
-        });
+    // Swagger Documentation (conditional: only if openapi.yaml exists)
+    const openApiPath = path.join(process.cwd(), 'openapi.yaml');
+    const openApiPathDocs = path.join(process.cwd(), 'docs', 'openapi.yaml');
+    
+    // Try both locations: root and docs/
+    const finalOpenApiPath = fs.existsSync(openApiPath) ? openApiPath : 
+                             fs.existsSync(openApiPathDocs) ? openApiPathDocs : null;
+    
+    if (finalOpenApiPath) {
+      try {
+        const openApiDocument = yaml.load(finalOpenApiPath);
+        if (openApiDocument.servers) {
+          // Add localhost with /v1 prefix for development
+          openApiDocument.servers.unshift({
+            url: `http://localhost:${config.port}/v1`,
+            description: 'Local development server'
+          });
+          
+          // Update production server to include /v1 prefix if not already present
+          openApiDocument.servers = openApiDocument.servers.map((server: any) => {
+            if (server.url && server.url.includes('azurewebsites.net') && !server.url.endsWith('/v1')) {
+              return {
+                ...server,
+                url: `${server.url}/v1`,
+                description: server.description || 'Production server'
+              };
+            }
+            return server;
+          });
+        }
+        this.app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument, {
+          explorer: true,
+          customCss: '.swagger-ui .topbar { display: none }',
+          customSiteTitle: 'AKI! Core API Documentation'
+        }));
+        logger.info('Swagger documentation available at /docs');
+      } catch (error) {
+        logger.warn('OpenAPI file found but failed to parse; continuing without /docs', { error });
       }
-      
-      this.app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument, {
-        explorer: true,
-        customCss: '.swagger-ui .topbar { display: none }',
-        customSiteTitle: 'AKI! Core API Documentation'
-      }));
-      
-      logger.info('Swagger documentation available at /docs');
-    } catch (error) {
-      logger.error('Failed to load OpenAPI documentation', error);
+    } else {
+      logger.warn('openapi.yaml not found in root or docs/; Swagger UI disabled');
     }
 
     // API routes
     this.app.use('/v1/events', createEventRoutes(this.eventController));
     this.app.use('/v1/attendances', createAttendanceRoutes(this.attendanceController));
     this.app.use('/v1/occurrences', createOccurrenceRoutes(this.occurrenceController));
-    this.app.use('/v1/admin', createAdminRoutes(this.adminController));
   }
 
   private setupErrorHandling(): void {
@@ -208,8 +238,12 @@ class Application {
       // Validate configuration
       validateConfig();
       
-      // Connect to database
-      await databaseConnection.connect(config.mongoUri);
+      const skipDb = process.env.SKIP_DB === 'true' || process.env.ALLOW_START_WITHOUT_DB === 'true';
+      if (skipDb) {
+        logger.warn('Database connection skipped due to SKIP_DB/ALLOW_START_WITHOUT_DB flag');
+      } else {
+        await databaseConnection.connect(config.mongoUri);
+      }
       
       // Start server
       this.app.listen(config.port, () => {
@@ -217,9 +251,17 @@ class Application {
           port: config.port,
           env: config.nodeEnv
         });
+        // eslint-disable-next-line no-console
+        console.log(`[startup] Server listening on port ${config.port}`);
+        if (skipDb) {
+          // eslint-disable-next-line no-console
+          console.log('[startup] WARNING: running without database connection');
+        }
       });
     } catch (error) {
       logger.error('Failed to start application', error);
+      // eslint-disable-next-line no-console
+      console.error('[startup] Fatal error during bootstrap:', error);
       process.exit(1);
     }
   }
