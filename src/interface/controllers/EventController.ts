@@ -4,6 +4,7 @@ import { GetEventUseCase } from '../../application/use-cases/events/GetEventUseC
 import { ListEventsUseCase } from '../../application/use-cases/events/ListEventsUseCase';
 import { UpdateEventUseCase } from '../../application/use-cases/events/UpdateEventUseCase';
 import { DeleteEventUseCase } from '../../application/use-cases/events/DeleteEventUseCase';
+import { GetEventByQrUseCase } from '../../application/use-cases/events/GetEventByQrUseCase';
 import { EventStatus } from '../../domain/value-objects/CommonTypes';
 import { ValidationError } from '../../shared/errors/AppErrors';
 import { logger } from '../../shared/logger/Logger';
@@ -14,7 +15,8 @@ export class EventController {
     private getEventUseCase: GetEventUseCase,
     private listEventsUseCase: ListEventsUseCase,
     private updateEventUseCase: UpdateEventUseCase,
-    private deleteEventUseCase: DeleteEventUseCase
+    private deleteEventUseCase: DeleteEventUseCase,
+    private getEventByQrUseCase: GetEventByQrUseCase
   ) {}
 
   async createEvent(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -124,6 +126,25 @@ export class EventController {
           expires_at: event.endTime
         },
         message: 'QR token retrieved successfully'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getEventByQr(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { qr_token } = req.query;
+
+      if (!qr_token || typeof qr_token !== 'string') {
+        throw new ValidationError('QR token is required');
+      }
+
+      const event = await this.getEventByQrUseCase.execute(qr_token);
+
+      res.json({
+        data: event.toObject(),
+        message: 'Event retrieved successfully by QR token'
       });
     } catch (error) {
       next(error);

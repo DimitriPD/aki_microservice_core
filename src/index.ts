@@ -33,6 +33,7 @@ import { GetEventUseCase } from './application/use-cases/events/GetEventUseCase'
 import { ListEventsUseCase } from './application/use-cases/events/ListEventsUseCase';
 import { UpdateEventUseCase } from './application/use-cases/events/UpdateEventUseCase';
 import { DeleteEventUseCase } from './application/use-cases/events/DeleteEventUseCase';
+import { GetEventByQrUseCase } from './application/use-cases/events/GetEventByQrUseCase';
 import { CreateAttendanceByQrUseCase } from './application/use-cases/attendances/CreateAttendanceByQrUseCase';
 
 // Controllers
@@ -59,6 +60,7 @@ class Application {
   private listEventsUseCase!: ListEventsUseCase;
   private updateEventUseCase!: UpdateEventUseCase;
   private deleteEventUseCase!: DeleteEventUseCase;
+  private getEventByQrUseCase!: GetEventByQrUseCase;
   private createAttendanceByQrUseCase!: CreateAttendanceByQrUseCase;
   
   // Controllers
@@ -94,6 +96,10 @@ class Application {
     this.listEventsUseCase = new ListEventsUseCase(this.eventRepository);
     this.updateEventUseCase = new UpdateEventUseCase(this.eventRepository);
     this.deleteEventUseCase = new DeleteEventUseCase(this.eventRepository);
+    this.getEventByQrUseCase = new GetEventByQrUseCase(
+      this.eventRepository,
+      this.tokenService
+    );
     this.createAttendanceByQrUseCase = new CreateAttendanceByQrUseCase(
       this.attendanceRepository,
       this.eventRepository,
@@ -107,7 +113,8 @@ class Application {
       this.getEventUseCase,
       this.listEventsUseCase,
       this.updateEventUseCase,
-      this.deleteEventUseCase
+      this.deleteEventUseCase,
+      this.getEventByQrUseCase
     );
     this.attendanceController = new AttendanceController(
       this.createAttendanceByQrUseCase,

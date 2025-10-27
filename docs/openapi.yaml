@@ -162,6 +162,40 @@ paths:
       security:
         - bearerAuth: []
 
+  /events/by-qr:
+    get:
+      tags: [Events]
+      summary: Get event by QR token
+      description: Retrieves event information by decoding and validating the QR token. Useful for students to see event details before marking attendance.
+      parameters:
+        - name: qr_token
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The JWT token from the QR code
+      responses:
+        "200":
+          description: Event found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        "400":
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+        - bearerAuth: []
+
   /events/{eventId}/qr:
     parameters:
       - name: eventId

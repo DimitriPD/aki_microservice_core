@@ -10,6 +10,9 @@ export function createEventRoutes(eventController: EventController): Router {
   // GET /events - List events with pagination and filters
   router.get('/', (req, res, next) => eventController.listEvents(req, res, next));
 
+  // GET /events/by-qr - Get event by QR token (must come before /:eventId)
+  router.get('/by-qr', (req, res, next) => eventController.getEventByQr(req, res, next));
+
   // POST /events - Create new event
   router.post('/', validateEventCreate, (req, res, next) =>
     eventController.createEvent(req, res, next)
