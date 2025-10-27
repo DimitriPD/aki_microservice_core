@@ -188,12 +188,6 @@ class Application {
       try {
         const openApiDocument = yaml.load(finalOpenApiPath);
         if (openApiDocument.servers) {
-          // Add localhost with /v1 prefix for development
-          openApiDocument.servers.unshift({
-            url: `http://localhost:${config.port}/v1`,
-            description: 'Local development server'
-          });
-          
           // Update production server to include /v1 prefix if not already present
           openApiDocument.servers = openApiDocument.servers.map((server: any) => {
             if (server.url && server.url.includes('azurewebsites.net') && !server.url.endsWith('/v1')) {

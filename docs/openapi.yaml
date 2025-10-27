@@ -13,8 +13,8 @@ info:
 servers:
   - url: https://aki-microservice-core-eta6esbzc5d9hze0.eastus2-01.azurewebsites.net
     description: Production server
-  - url: http://localhost:3001
-    description: Local development (no /v1 prefix yet)
+  - url: http://localhost:3001/v1
+    description: Local development
 
 security:
   - bearerAuth: []
