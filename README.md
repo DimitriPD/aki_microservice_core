@@ -15,7 +15,7 @@ Este serviço provê a lógica de negócio para:
 - Criação e manutenção de eventos de presença
 - Registro de presenças via QR Code e geolocalização
 
-Ele integra-se a outros microsserviços (ex.: Personas).
+Ele integra-se a outros microsserviços (ex.: Personas).j
 
 ---
 ## 🏛️ Arquitetura
