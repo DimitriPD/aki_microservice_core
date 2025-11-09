@@ -19,112 +19,27 @@ import { logger } from './shared/logger/Logger';
 import { errorHandler, notFoundHandler } from './interface/middlewares/ErrorMiddleware';
 
 // Repositories
-import { EventRepositoryImpl } from './infrastructure/repositories/EventRepositoryImpl';
-import { AttendanceRepositoryImpl } from './infrastructure/repositories/AttendanceRepositoryImpl';
-import { OccurrenceRepositoryImpl } from './infrastructure/repositories/OccurrenceRepositoryImpl';
-
-// Services
-import { PersonasServiceImpl } from './application/services/PersonasService';
-import { TokenService } from './shared/utils/TokenService';
-
-// Use Cases
-import { CreateEventUseCase } from './application/use-cases/events/CreateEventUseCase';
-import { GetEventUseCase } from './application/use-cases/events/GetEventUseCase';
-import { ListEventsUseCase } from './application/use-cases/events/ListEventsUseCase';
-import { UpdateEventUseCase } from './application/use-cases/events/UpdateEventUseCase';
-import { DeleteEventUseCase } from './application/use-cases/events/DeleteEventUseCase';
-import { GetEventByQrUseCase } from './application/use-cases/events/GetEventByQrUseCase';
-import { CreateAttendanceByQrUseCase } from './application/use-cases/attendances/CreateAttendanceByQrUseCase';
+// (Legacy direct instantiations removed; feature slices resolve dependencies lazily.)
 
 // Controllers
-import { EventController } from './interface/controllers/EventController';
-import { AttendanceController } from './interface/controllers/AttendanceController';
-import { OccurrenceController } from './interface/controllers/OccurrenceController';
 
 // Routes
-import { createEventRoutes } from './interface/routes/EventRoutes';
-import { createAttendanceRoutes } from './interface/routes/AttendanceRoutes';
-import { createOccurrenceRoutes } from './interface/routes/OccurrenceRoutes';
+// New vertical slice routers
+import { registerFeatureRoutes } from './features';
 
 class Application {
   private app: express.Application;
-  private eventRepository!: EventRepositoryImpl;
-  private attendanceRepository!: AttendanceRepositoryImpl;
-  private occurrenceRepository!: OccurrenceRepositoryImpl;
-  private personasService!: PersonasServiceImpl;
-  private tokenService!: TokenService;
+  // All dependencies now resolved per-feature via src/features/_shared/Dependencies.ts
   
-  // Use Cases
-  private createEventUseCase!: CreateEventUseCase;
-  private getEventUseCase!: GetEventUseCase;
-  private listEventsUseCase!: ListEventsUseCase;
-  private updateEventUseCase!: UpdateEventUseCase;
-  private deleteEventUseCase!: DeleteEventUseCase;
-  private getEventByQrUseCase!: GetEventByQrUseCase;
-  private createAttendanceByQrUseCase!: CreateAttendanceByQrUseCase;
-  
-  // Controllers
-  private eventController!: EventController;
-  private attendanceController!: AttendanceController;
-  private occurrenceController!: OccurrenceController;
 
   constructor() {
     this.app = express();
-    this.setupDependencies();
     this.setupMiddleware();
     this.setupRoutes();
     this.setupErrorHandling();
   }
 
-  private setupDependencies(): void {
-    // Initialize repositories
-  this.eventRepository = new EventRepositoryImpl();
-  this.attendanceRepository = new AttendanceRepositoryImpl();
-  this.occurrenceRepository = new OccurrenceRepositoryImpl();
-    
-    // Initialize services
-    this.personasService = new PersonasServiceImpl(config.personasBaseUrl);
-    this.tokenService = new TokenService(config.jwtSecret);
-    
-    // Initialize use cases
-    this.createEventUseCase = new CreateEventUseCase(
-      this.eventRepository,
-      this.tokenService,
-      this.personasService
-    );
-    this.getEventUseCase = new GetEventUseCase(this.eventRepository);
-    this.listEventsUseCase = new ListEventsUseCase(this.eventRepository);
-    this.updateEventUseCase = new UpdateEventUseCase(this.eventRepository);
-    this.deleteEventUseCase = new DeleteEventUseCase(this.eventRepository);
-    this.getEventByQrUseCase = new GetEventByQrUseCase(
-      this.eventRepository,
-      this.tokenService
-    );
-    this.createAttendanceByQrUseCase = new CreateAttendanceByQrUseCase(
-      this.attendanceRepository,
-      this.eventRepository,
-      this.tokenService,
-      this.personasService
-    );
-    
-    // Initialize controllers
-    this.eventController = new EventController(
-      this.createEventUseCase,
-      this.getEventUseCase,
-      this.listEventsUseCase,
-      this.updateEventUseCase,
-      this.deleteEventUseCase,
-      this.getEventByQrUseCase
-    );
-    this.attendanceController = new AttendanceController(
-      this.createAttendanceByQrUseCase,
-      this.attendanceRepository
-    );
-    this.occurrenceController = new OccurrenceController(
-      this.occurrenceRepository,
-      this.personasService
-    );
-  }
+  // Removed setupDependencies(); each slice constructs its own use cases.
 
   private setupMiddleware(): void {
     // Security middleware
@@ -220,10 +135,9 @@ class Application {
       logger.warn('openapi.yaml not found in root or docs/; Swagger UI disabled');
     }
 
-    // API routes
-    this.app.use('/v1/events', createEventRoutes(this.eventController));
-    this.app.use('/v1/attendances', createAttendanceRoutes(this.attendanceController));
-    this.app.use('/v1/occurrences', createOccurrenceRoutes(this.occurrenceController));
+  // --- Vertical Slice Feature Routes ---
+  // Legacy routes and controllers removed; feature routers are now authoritative.
+  registerFeatureRoutes(this.app);
   }
 
   private setupErrorHandling(): void {

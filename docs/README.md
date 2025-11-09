@@ -324,3 +324,84 @@ E inclui:
 | **Function 4**                | Azure Function (Event Consumer) | Banco próprio | Simulador de instituição        |
 | **Frontend Professor**        | React / TypeScript              | —             | CRUD de eventos e turmas        |
 | **Frontend Aluno**            | React / TypeScript              | —             | QR Code, presença, dispositivo  |
+
+---
+
+## Vertical Slice Architecture (100% Adotada)
+
+O projeto agora está totalmente alinhado ao padrão **Vertical Slice Architecture**. Todo código específico de domínio (entidades, value objects, repositórios, modelos de persistência, handlers, validações) vive dentro da pasta da própria feature. Não há mais camada `domain/` ou `infrastructure/repositories` centralizadas para Eventos, Presenças ou Ocorrências.
+
+Estrutura atual em `src/features/` (exemplo resumido):
+
+```
+src/features/
+  _shared/
+    Dependencies.ts        // Inicialização lazy de singletons (repos, serviços, token)
+    types.ts               // Tipos de resposta comuns
+  events/
+    create/                // CreateEventCommand + Handler + Validator + Endpoint
+    list/                  // ListEventsEndpoint
+    get/                   // GetEventEndpoint + GetEventQrEndpoint
+    getByQr/               // GetEventByQrEndpoint
+    update/                // UpdateEventEndpoint
+    delete/                // DeleteEventEndpoint
+    index.ts               // Agrega router da feature
+  attendances/
+    createByQr/            // CreateAttendanceByQr* arquivos
+    list/                  // ListAttendancesEndpoint
+    get/                   // GetAttendanceEndpoint
+    update/                // UpdateAttendanceEndpoint
+    index.ts
+  occurrences/
+    create/                // CreateOccurrence* arquivos
+    list/                  // ListOccurrencesEndpoint
+    index.ts
+  index.ts                 // Registro central de routers das features
+```
+
+#### Benefícios (Refatoração Final)
+* Alta coesão: domínio + persistência + endpoint da feature no mesmo lugar.
+* Baixo acoplamento: nenhum slice importa entidades de outro (somente IDs/token services compartilhados quando necessário).
+* Evolução simples: uma nova operação significa adicionar uma pequena pasta com validator/handler/endpoint.
+* Menos regressões: alterações em uma feature não quebram silenciosamente outra por tipos compartilhados acidentais.
+* Remoção de sobrecarga conceitual: não há mais tradução mental entre camadas horizontais dispersas.
+
+#### Migração (Resumo das Ações)
+1. Criados diretórios `domain` e `persistence` dentro de cada slice (events, attendances, occurrences).
+2. Movidos: entidades, value objects, interfaces e implementações de repositório + models Mongoose para dentro de cada slice.
+3. Atualizado `Dependencies.ts` para instanciar repositórios por slice.
+4. Eliminadas pastas antigas: `src/domain` e `src/infrastructure/repositories` + `infrastructure/database/models` relacionados a essas features.
+5. Ajustadas todas as importações para referências relativas internas de slice.
+6. Duplicados (ou especializados) VOs necessários em cada slice para evitar Shared Kernel prematuro (ex.: `Location`, `EventId`, etc.).
+7. Mantidos apenas utilitários verdadeiramente cross-cutting em `shared/` (erros, logger, token, geo utils).
+8. Atualizado este README para refletir a nova arquitetura.
+
+#### Como adicionar uma nova Feature (Exemplo: Close Event)
+```
+src/features/events/close/
+  CloseEventCommand.ts
+  CloseEventValidator.ts
+  CloseEventHandler.ts
+  CloseEventEndpoint.ts
+```
+`CloseEventEndpoint.ts` registra `router.post('/:eventId/close', ...)` chamando o handler que usa `UpdateEventUseCase` ou um novo `CloseEventUseCase` específico.
+
+#### FAQ Atualizada
+| Questão | Resposta |
+|---------|----------|
+| Posso usar DI container? | Sim, pode-se substituir `Dependencies.ts` por Inversify / tsyringe sem alterar slices. |
+| Como testar handlers isolados? | Importe o handler e injete fakes/stubs; cada handler delega a um use case. |
+| O que acontece com os UseCases? | Permanecem como núcleo de regras; slices fazem apenas orquestração/IO. |
+| Onde foram parar controllers antigos? | Removidos em `interface/controllers`; lógica distribuída em handlers por slice. |
+| Ainda existe `ValidationMiddleware` global? | Não. Cada caso de uso possui seu `Validator` específico dentro do slice. |
+| Por que duplicar alguns Value Objects (ex.: Location)? | Para manter isolamento e permitir evolução divergente sem acoplamento precoce. Consolidar apenas quando comportamento for realmente compartilhado. |
+| Como compartilhar algo inevitável (ex.: TokenService)? | Permanecer em `shared/` e injetar via `Dependencies`. |
+
+#### Próximos Passos Sugeridos
+* Testes: criar `tests/` dentro de cada slice (ex.: `src/features/events/tests/EventRepository.spec.ts`).
+* Observability: adicionar métricas por slice (ex.: tempo de criação de evento, taxa de falhas de QR).
+* Contratos: gerar OpenAPI a partir dos schemas Zod (bibliotecas como `zod-to-openapi`).
+* Segurança: mover geração/validação de QR para um sub-slice `events/qr/` se crescer em complexidade.
+* Refino de Shared Kernel: extrair VO comum somente após dois slices exigirem o MESMO comportamento (não apenas estrutura).
+
+---

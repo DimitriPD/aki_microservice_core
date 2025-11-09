@@ -9,7 +9,9 @@
     "dev": "ts-node-dev --respawn --transpile-only --ignore-watch node_modules src/index.ts",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "keywords": [
     "microservice",
@@ -43,6 +45,7 @@
     "@types/compression": "^1.7.5",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.10.5",
     "@types/swagger-ui-express": "^4.1.8",
@@ -52,9 +55,12 @@
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
+    "jest": "^30.2.0",
     "prettier": "^3.6.2",
     "rimraf": "^5.0.5",
+    "ts-jest": "^29.4.5",
     "ts-node-dev": "^2.0.0",
+    "tsarch": "^5.4.1",
     "typescript": "^5.3.3"
   },
   "engines": {
